@@ -1,5 +1,6 @@
 import 'dart:developer';
 
+import 'package:cursor_hack/features/auth/models/auth_model.dart';
 import 'package:cursor_hack/services/network/api_response.dart';
 import 'package:cursor_hack/services/network/api_urls.dart';
 import 'package:cursor_hack/services/network/dio_service.dart';
@@ -10,27 +11,27 @@ class AuthRepository {
   final dio = BaseDio().instance;
   final StorageService storageService = StorageService.instance;
 
-  Future<void> login({
-    required String username,
+  Future<AuthModel> login({
+    required String email,
     required String password,
   }) async {
     try {
-      final body = {"username": username, "password": password};
+      final body = {"email": email, "password": password};
 
-      await Future.delayed(const Duration(seconds: 2));
-      // final response = await dio.post(
-      //   ApiUrls.baseUrl + ApiUrls.loginUrl,
-      //   data: body,
-      // );
-      // if (response.statusCode == 200) {
-      //   //   await Future.wait([
-      //   //     storageService.saveToken(token: response.data['data']['token']),
-      //   //   ]);
-
-      //   // return AuthModel.fromJson(response.data);
-      // } else {
-      //   return Future.error('Failed to login');
-      // }
+      final response = await dio.post(
+        ApiUrls.baseUrl + ApiUrls.loginUrl,
+        data: body,
+      );
+      if (response.statusCode == 200) {
+        await storageService.saveToken(token: response.data['access_token']);
+        final String? refresh = response.data['refresh_token'] as String?;
+        if (refresh != null) {
+          await storageService.saveRefreshToken(token: refresh);
+        }
+        return AuthModel.fromJson(response.data);
+      } else {
+        return Future.error('Failed to login');
+      }
     } on DioException catch (e) {
       log(e.toString());
       if (e.response != null) {

@@ -1,8 +1,8 @@
 class ApiUrls {
-  static const String baseUrl = "http://192.168.2.4/pmtool/api/";
+  static const String baseUrl = "https://planiteinvite.share.zrok.io/";
 
   ///[AUTH]
-  static const String loginUrl = "user/login";
+  static const String loginUrl = "auth/login";
 
   ///[HOME]
   static const String getMyTasks = "my-tasks";

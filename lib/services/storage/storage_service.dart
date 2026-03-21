@@ -7,18 +7,25 @@ class StorageService {
 
   FlutterSecureStorage storage = const FlutterSecureStorage();
 
-  // save authorization token
+  static const String _keyAccessToken = 'token';
+  static const String _keyRefreshToken = 'refresh_token';
+
+  /// Backend / Supabase access token (JWT) for `Authorization: Bearer`.
   Future<void> saveToken({required String token}) async {
-    await storage.write(key: 'token', value: token);
+    await storage.write(key: _keyAccessToken, value: token);
   }
 
-  // get authorization token
   Future<String?> getToken() async {
-    final token = await storage.read(key: 'token');
-    if (token != null) {
-      return token;
-    }
-    return null;
+    return storage.read(key: _keyAccessToken);
+  }
+
+  /// Supabase (or backend) refresh token — persist per AGENTS.md.
+  Future<void> saveRefreshToken({required String token}) async {
+    await storage.write(key: _keyRefreshToken, value: token);
+  }
+
+  Future<String?> getRefreshToken() async {
+    return storage.read(key: _keyRefreshToken);
   }
 
   Future<void> clearStorage() async {

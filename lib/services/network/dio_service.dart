@@ -48,8 +48,9 @@ class BaseDio {
             );
           } else if (error.response != null &&
               error.response!.statusCode == 401) {
-            navKey.currentContext?.goNamed(AppRouteConstant.login);
             await storage.delete(key: 'token');
+            await storage.delete(key: 'refresh_token');
+            navKey.currentContext?.go(AppRouteConstant.login);
           }
           return handler.next(error);
         },

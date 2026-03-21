@@ -57,7 +57,7 @@ class _LoginScreenState extends State<LoginScreen> {
                 ),
                 boxh30,
                 CustomTextField(
-                  hintText: 'Username',
+                  hintText: 'Email',
                   editingController: _emailController,
                   textInputType: TextInputType.emailAddress,
                 ),
@@ -88,7 +88,7 @@ class _LoginScreenState extends State<LoginScreen> {
                     radius: 10.r,
                     function: () => prov.login(
                       context,
-                      username: _emailController.text,
+                      email: _emailController.text,
                       password: _passwordController.text,
                     ),
                     buttonTextStyle: const TextStyle(
@@ -99,14 +99,10 @@ class _LoginScreenState extends State<LoginScreen> {
                 ),
                 boxh50,
 
-                // const _SocialButton(
-                //   iconWidget: Icon(
-                //     Icons.g_mobiledata_rounded,
-                //     color: Color(0xFF4285F4),
-                //     size: 28,
-                //   ),
-                //   label: 'Sign in with google',
-                // ),
+                _GoogleSignInButton(
+                  isLoading: prov.isGoogleLoading,
+                  onPressed: () => prov.signInWithGoogle(context),
+                ),
               ],
             );
           },
@@ -116,31 +112,78 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 }
 
-class _SocialButton extends StatelessWidget {
-  const _SocialButton({required this.iconWidget, required this.label});
+class _GoogleSignInButton extends StatelessWidget {
+  const _GoogleSignInButton({
+    required this.isLoading,
+    required this.onPressed,
+  });
 
-  final Widget iconWidget;
-  final String label;
+  final bool isLoading;
+  final VoidCallback onPressed;
 
   @override
   Widget build(BuildContext context) {
-    return Container(
+    return SizedBox(
       width: double.infinity,
-      decoration: BoxDecoration(
-        border: Border.all(color: AppColors.outline),
-        borderRadius: BorderRadius.circular(18),
-      ),
-      child: CustomIconButton(
-        onPressed: () {},
-        backgroundColor: Colors.transparent,
-        borderRadius: BorderRadius.circular(18),
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-        icon: Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: <Widget>[iconWidget, boxw10],
+      child: Material(
+        color: Colors.white,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(14),
+          side: BorderSide(
+            color: Colors.grey.shade300,
+          ),
         ),
-        iconText: label,
-        textStyle: const TextStyle(color: AppColors.titleText, fontSize: 19),
+        elevation: 0.6,
+        child: InkWell(
+          onTap: isLoading ? null : onPressed,
+          borderRadius: BorderRadius.circular(14),
+          splashColor: const Color(0xFF4285F4).withValues(alpha: 0.08),
+          highlightColor: const Color(0xFF4285F4).withValues(alpha: 0.04),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 14),
+            child: AnimatedSwitcher(
+              duration: const Duration(milliseconds: 200),
+              child: isLoading
+                  ? const SizedBox(
+                      key: ValueKey<String>('loader'),
+                      height: 22,
+                      width: 22,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2.4,
+                        valueColor: AlwaysStoppedAnimation<Color>(
+                          Color(0xFF4285F4),
+                        ),
+                      ),
+                    )
+                  : Row(
+                      key: const ValueKey<String>('content'),
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: <Widget>[
+                        Image.network(
+                          'https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg',
+                          height: 22,
+                          width: 22,
+                          errorBuilder: (_, __, ___) => const Icon(
+                            Icons.g_mobiledata_rounded,
+                            color: Color(0xFF4285F4),
+                            size: 26,
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        const Text(
+                          'Continue with Google',
+                          style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w600,
+                            color: Color(0xFF3C4043),
+                            letterSpacing: 0.15,
+                          ),
+                        ),
+                      ],
+                    ),
+            ),
+          ),
+        ),
       ),
     );
   }
