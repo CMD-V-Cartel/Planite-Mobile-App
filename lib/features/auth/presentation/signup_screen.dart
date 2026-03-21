@@ -1,25 +1,52 @@
 import 'package:cursor_hack/features/auth/controllers/auth_provider.dart';
-import 'package:cursor_hack/router/app_route_constant.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 
-class LoginScreen extends StatefulWidget {
-  const LoginScreen({super.key});
+class SignupScreen extends StatefulWidget {
+  const SignupScreen({super.key});
 
   @override
-  State<LoginScreen> createState() => _LoginScreenState();
+  State<SignupScreen> createState() => _SignupScreenState();
 }
 
-class _LoginScreenState extends State<LoginScreen> {
+class _SignupScreenState extends State<SignupScreen> {
+  final TextEditingController _nameController = TextEditingController();
   final TextEditingController _emailController = TextEditingController();
   final TextEditingController _passwordController = TextEditingController();
+  final TextEditingController _confirmPasswordController =
+      TextEditingController();
+
+  bool _obscurePassword = true;
+  bool _obscureConfirm = true;
 
   @override
   void dispose() {
+    _nameController.dispose();
     _emailController.dispose();
     _passwordController.dispose();
+    _confirmPasswordController.dispose();
     super.dispose();
+  }
+
+  void _handleSignup(AuthProvider prov) {
+    final String password = _passwordController.text;
+    final String confirm = _confirmPasswordController.text;
+    if (password != confirm) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Passwords do not match'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      return;
+    }
+    prov.register(
+      context,
+      name: _nameController.text.trim(),
+      email: _emailController.text.trim(),
+      password: password,
+    );
   }
 
   @override
@@ -38,7 +65,7 @@ class _LoginScreenState extends State<LoginScreen> {
                   _BackButton(onPressed: () => context.pop()),
                   const SizedBox(height: 36),
                   const Text(
-                    'Welcome back',
+                    'Create account',
                     style: TextStyle(
                       fontSize: 28,
                       fontWeight: FontWeight.w800,
@@ -47,13 +74,21 @@ class _LoginScreenState extends State<LoginScreen> {
                   ),
                   const SizedBox(height: 6),
                   const Text(
-                    'Log in to your account',
+                    'Sign up to get started',
                     style: TextStyle(
                       fontSize: 15,
                       color: Color(0xFF8E95A4),
                     ),
                   ),
                   const SizedBox(height: 36),
+                  _InputField(
+                    controller: _nameController,
+                    hint: 'Full name',
+                    keyboardType: TextInputType.name,
+                    prefixIcon: Icons.person_outline_rounded,
+                    textCapitalization: TextCapitalization.words,
+                  ),
+                  const SizedBox(height: 14),
                   _InputField(
                     controller: _emailController,
                     hint: 'Email address',
@@ -66,11 +101,31 @@ class _LoginScreenState extends State<LoginScreen> {
                     hint: 'Password',
                     keyboardType: TextInputType.visiblePassword,
                     prefixIcon: Icons.lock_outline_rounded,
-                    obscureText: prov.isPasswordVisible,
+                    obscureText: _obscurePassword,
                     suffixIcon: GestureDetector(
-                      onTap: () => prov.togglePassword(),
+                      onTap: () =>
+                          setState(() => _obscurePassword = !_obscurePassword),
                       child: Icon(
-                        prov.isPasswordVisible
+                        _obscurePassword
+                            ? Icons.visibility_off_rounded
+                            : Icons.visibility_rounded,
+                        size: 20,
+                        color: const Color(0xFFB0B6C3),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+                  _InputField(
+                    controller: _confirmPasswordController,
+                    hint: 'Confirm password',
+                    keyboardType: TextInputType.visiblePassword,
+                    prefixIcon: Icons.lock_outline_rounded,
+                    obscureText: _obscureConfirm,
+                    suffixIcon: GestureDetector(
+                      onTap: () =>
+                          setState(() => _obscureConfirm = !_obscureConfirm),
+                      child: Icon(
+                        _obscureConfirm
                             ? Icons.visibility_off_rounded
                             : Icons.visibility_rounded,
                         size: 20,
@@ -90,13 +145,8 @@ class _LoginScreenState extends State<LoginScreen> {
                           borderRadius: BorderRadius.circular(14),
                         ),
                       ),
-                      onPressed: prov.isLoading
-                          ? null
-                          : () => prov.login(
-                                context,
-                                email: _emailController.text.trim(),
-                                password: _passwordController.text,
-                              ),
+                      onPressed:
+                          prov.isLoading ? null : () => _handleSignup(prov),
                       child: prov.isLoading
                           ? const SizedBox(
                               height: 20,
@@ -107,7 +157,7 @@ class _LoginScreenState extends State<LoginScreen> {
                               ),
                             )
                           : const Text(
-                              'Log In',
+                              'Sign Up',
                               style: TextStyle(
                                 fontSize: 16,
                                 fontWeight: FontWeight.w600,
@@ -125,17 +175,17 @@ class _LoginScreenState extends State<LoginScreen> {
                   const SizedBox(height: 32),
                   Center(
                     child: GestureDetector(
-                      onTap: () => context.push(AppRouteConstant.signup),
+                      onTap: () => context.pop(),
                       child: Text.rich(
                         TextSpan(
-                          text: "Don't have an account? ",
+                          text: 'Already have an account? ',
                           style: const TextStyle(
                             fontSize: 14,
                             color: Color(0xFF8E95A4),
                           ),
                           children: const <TextSpan>[
                             TextSpan(
-                              text: 'Sign Up',
+                              text: 'Log In',
                               style: TextStyle(
                                 color: Color(0xFF3D5AFE),
                                 fontWeight: FontWeight.w600,
@@ -146,6 +196,7 @@ class _LoginScreenState extends State<LoginScreen> {
                       ),
                     ),
                   ),
+                  const SizedBox(height: 16),
                 ],
               ),
             );
@@ -189,6 +240,7 @@ class _InputField extends StatelessWidget {
     required this.prefixIcon,
     this.obscureText = false,
     this.suffixIcon,
+    this.textCapitalization,
   });
 
   final TextEditingController controller;
@@ -197,6 +249,7 @@ class _InputField extends StatelessWidget {
   final IconData prefixIcon;
   final bool obscureText;
   final Widget? suffixIcon;
+  final TextCapitalization? textCapitalization;
 
   @override
   Widget build(BuildContext context) {
@@ -205,6 +258,7 @@ class _InputField extends StatelessWidget {
       keyboardType: keyboardType,
       obscureText: obscureText,
       maxLines: 1,
+      textCapitalization: textCapitalization ?? TextCapitalization.none,
       style: const TextStyle(fontSize: 15, color: Color(0xFF111111)),
       decoration: InputDecoration(
         hintText: hint,

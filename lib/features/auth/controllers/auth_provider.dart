@@ -77,8 +77,58 @@ class AuthProvider with ChangeNotifier {
     }
   }
 
-  /// Google OAuth via Supabase. Session tokens are persisted for backend
-  /// `Authorization: Bearer` usage. Handles user cancellation gracefully.
+  Future<AuthModel?> register(
+    BuildContext context, {
+    required String name,
+    required String email,
+    required String password,
+  }) async {
+    try {
+      setErrorMessage(null);
+      setLoading(true);
+      final ctx = context;
+      _authModel = await _authRepository.register(
+        name: name,
+        email: email,
+        password: password,
+      );
+      setLoading(false);
+      if (ctx.mounted) {
+        ctx.go(AppRouteConstant.home);
+      }
+      return _authModel;
+    } catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(e.toString()),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+      return null;
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  /// Logout captured from a deactivated widget tree (e.g. after dialog dismiss).
+  /// Calls the backend `POST /auth/logout` before clearing local state.
+  Future<void> performLogout(GoRouter router) async {
+    try {
+      await _authRepository.backendLogout();
+      await StorageService.instance.clearStorage();
+      try {
+        await Supabase.instance.client.auth.signOut();
+      } catch (_) {}
+      _authModel = null;
+      notifyListeners();
+      router.go(AppRouteConstant.onboarding);
+    } catch (_) {}
+  }
+
+  /// Google OAuth via Supabase. After the redirect completes, calls
+  /// `POST /auth/google/sync` per AGENTS.md to bridge the identity gap.
   Future<void> signInWithGoogle(BuildContext context) async {
     setErrorMessage(null);
     setGoogleLoading(true);
@@ -113,21 +163,68 @@ class AuthProvider with ChangeNotifier {
 
       final Session session = await sessionCompleter.future.timeout(
         const Duration(minutes: 5),
-        onTimeout: () =>
-            throw TimeoutException('Google sign-in timed out.'),
+        onTimeout: () => throw TimeoutException('Google sign-in timed out.'),
       );
 
+      // Persist Supabase tokens locally.
       await StorageService.instance.saveToken(token: session.accessToken);
-      final String? refresh = session.refreshToken;
-      if (refresh != null) {
-        await StorageService.instance.saveRefreshToken(token: refresh);
+      final String? supabaseRefresh = session.refreshToken;
+      if (supabaseRefresh != null) {
+        await StorageService.instance.saveRefreshToken(token: supabaseRefresh);
+      }
+
+      // Extract Google identity from the Supabase user object.
+      final user = Supabase.instance.client.auth.currentUser;
+      final String email = user?.email ?? session.user.email ?? '';
+      String providerUserId = '';
+      String? googleRefreshToken;
+      String? fullName;
+      String? profilePictureUrl;
+
+      if (user != null) {
+        final googleIdentity = user.identities?.where(
+          (id) => id.provider == 'google',
+        );
+        if (googleIdentity != null && googleIdentity.isNotEmpty) {
+          providerUserId = googleIdentity.first.id;
+        }
+
+        final Map<String, dynamic>? meta = user.userMetadata;
+        if (meta != null) {
+          fullName = meta['full_name'] as String? ??
+              meta['name'] as String?;
+          profilePictureUrl = meta['avatar_url'] as String? ??
+              meta['picture'] as String?;
+        }
+      }
+
+      // The Google refresh token is only available from provider token data
+      // when offline access was granted. Supabase may expose it in the session
+      // providerRefreshToken field.
+      googleRefreshToken = session.providerRefreshToken;
+
+      // Call POST /auth/google/sync -- only if we have a non-null Google
+      // refresh token, OR this is potentially the first login (always sync).
+      if (providerUserId.isNotEmpty) {
+        try {
+          final syncResult = await _authRepository.googleSync(
+            email: email,
+            providerUserId: providerUserId,
+            googleRefreshToken: googleRefreshToken,
+            fullName: fullName,
+            profilePictureUrl: profilePictureUrl,
+          );
+          debugPrint('Google sync result: $syncResult');
+        } catch (e) {
+          debugPrint('Google sync failed (non-blocking): $e');
+        }
       }
 
       _authModel = AuthModel(
         accessToken: session.accessToken,
         refreshToken: session.refreshToken,
         tokenType: 'bearer',
-        user: AuthUser(email: session.user.email),
+        user: AuthUser(email: email),
       );
 
       setGoogleLoading(false);

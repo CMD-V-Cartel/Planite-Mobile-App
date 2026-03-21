@@ -3,6 +3,10 @@ class ApiUrls {
 
   ///[AUTH]
   static const String loginUrl = "auth/login";
+  static const String registerUrl = "auth/register";
+  static const String logoutUrl = "auth/logout";
+  static const String refreshUrl = "auth/refresh";
+  static const String googleSyncUrl = "auth/google/sync";
 
   ///[HOME]
   static const String getMyTasks = "my-tasks";

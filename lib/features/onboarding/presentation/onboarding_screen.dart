@@ -1,6 +1,4 @@
 import 'package:cursor_hack/router/app_route_constant.dart';
-import 'package:cursor_hack/router/app_router.dart';
-import 'package:cursor_hack/utils/colors/colors.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
@@ -10,64 +8,88 @@ class OnboardingScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: AppColors.scaffoldBackground,
+      backgroundColor: const Color(0xFFF7F8FA),
       body: SafeArea(
         child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
+          padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 24),
           child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
             children: <Widget>[
+              const Spacer(flex: 2),
               Container(
-                width: 124,
-                height: 124,
+                width: 110,
+                height: 110,
                 decoration: BoxDecoration(
-                  color: AppColors.primary.withValues(alpha: 0.18),
+                  gradient: const LinearGradient(
+                    colors: <Color>[Color(0xFF6C63FF), Color(0xFF3D5AFE)],
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                  ),
                   borderRadius: BorderRadius.circular(28),
                 ),
                 child: const Icon(
-                  Icons.waving_hand_rounded,
-                  size: 62,
-                  color: AppColors.primary,
+                  Icons.event_note_rounded,
+                  size: 52,
+                  color: Colors.white,
                 ),
               ),
               const SizedBox(height: 36),
               const Text(
-                'Welcome',
+                'Plan Together',
                 style: TextStyle(
-                  fontSize: 34,
-                  fontWeight: FontWeight.w700,
-                  color: AppColors.titleText,
+                  fontSize: 30,
+                  fontWeight: FontWeight.w800,
+                  color: Color(0xFF111111),
                 ),
               ),
-              const SizedBox(height: 10),
+              const SizedBox(height: 12),
               const Text(
-                'Start your journey with a smooth and simple login experience.',
+                'Organize events, collaborate with groups,\nand let AI handle the scheduling.',
                 textAlign: TextAlign.center,
                 style: TextStyle(
-                  fontSize: 16,
-                  color: AppColors.subtitleText,
-                  height: 1.4,
+                  fontSize: 15,
+                  color: Color(0xFF8E95A4),
+                  height: 1.5,
                 ),
               ),
-              const SizedBox(height: 40),
+              const Spacer(flex: 3),
               SizedBox(
                 width: double.infinity,
                 child: FilledButton(
                   style: FilledButton.styleFrom(
-                    backgroundColor: AppColors.primary,
-                    foregroundColor: AppColors.primaryText,
+                    backgroundColor: const Color(0xFF3D5AFE),
+                    foregroundColor: Colors.white,
                     padding: const EdgeInsets.symmetric(vertical: 16),
                     shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(18),
+                      borderRadius: BorderRadius.circular(14),
                     ),
                   ),
                   onPressed: () => context.push(AppRouteConstant.login),
                   child: const Text(
-                    'Get Started',
-                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
+                    'Log In',
+                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
                   ),
                 ),
               ),
+              const SizedBox(height: 12),
+              SizedBox(
+                width: double.infinity,
+                child: OutlinedButton(
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: const Color(0xFF3D5AFE),
+                    side: const BorderSide(color: Color(0xFF3D5AFE)),
+                    padding: const EdgeInsets.symmetric(vertical: 16),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                  ),
+                  onPressed: () => context.push(AppRouteConstant.signup),
+                  child: const Text(
+                    'Create Account',
+                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
             ],
           ),
         ),

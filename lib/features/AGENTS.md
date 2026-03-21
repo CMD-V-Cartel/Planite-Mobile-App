@@ -1,4 +1,3 @@
-
 # Planning & Invite App - Frontend Mission Profile
 
 ## 🛠 Tech Stack & Integration Surface
@@ -17,9 +16,10 @@
 
 ## 🧠 Integration Rules
 1. **Use backend auth endpoints first.** Do not bypass FastAPI for signup/login/logout/refresh unless explicitly asked.
-2. **Forward bearer tokens exactly.** Protected backend routes rely on `Authorization: Bearer <access_token>`.
-3. **Assume RLS is active.** If a protected request fails, first verify the access token is present and fresh.
-4. **Treat zrok as the active public tunnel.** Do not switch the frontend to Cloudflare from this environment.
+2. **For Google OAuth: always call `POST /auth/google/sync` after Supabase OAuth completes.** This is the only way to ensure `public.users` and `public.google_auth_tokens` are populated, which is required for calendar sync.
+3. **Forward bearer tokens exactly.** Protected backend routes rely on `Authorization: Bearer <access_token>`.
+4. **Assume RLS is active.** If a protected request fails, first verify the access token is present and fresh.
+5. **Treat zrok as the active public tunnel.** Do not switch the frontend to Cloudflare from this environment.
 
 ## 🤖 Frontend Roles
 
@@ -169,9 +169,10 @@ Response:
 ```
 
 ### Google Authentication
-There is currently **no backend `/auth/google` endpoint**. The frontend must start Google sign-in with Supabase directly, then use the returned Supabase session against the backend.
 
-Use the Supabase Flutter client flow:
+Google sign-in starts with the Supabase OAuth flow. After the redirect completes, the frontend **must** call `POST /auth/google/sync` to bridge the identity gap between `auth.users` (Supabase-managed) and `public.users` + `public.google_auth_tokens` (app-managed). Without this call, calendar sync will not work for the user.
+
+**Step 1:** Start Google OAuth via Supabase:
 
 ```ts
 await supabase.auth.signInWithOAuth(
@@ -185,10 +186,16 @@ After the OAuth redirect completes, Supabase provides a session containing:
 - `user`
 - provider metadata in `user.app_metadata` / `user.identities`
 
+**Step 2: (CRITICAL)** Call `POST /auth/google/sync` immediately after the OAuth redirect succeeds. This single call handles everything the backend needs:
+- Creates or updates the `public.users` row with `auth_provider: "google"`
+- Encrypts and persists the Google refresh token into `public.google_auth_tokens`
+- Uses the service role key server-side, so no bearer token is needed from the frontend for this call
+
+See the full `POST /auth/google/sync` contract below.
+
 ### Android / Flutter Requirements
 1. Use `supabase_flutter` for the OAuth flow and session handling.
 2. Configure Android deep linking so the Supabase OAuth redirect returns to the app.
-3. **Local env:** copy `.env.example` → `.env` and see `docs/ENV_SETUP.md` for redirect URL + Google provider setup.
 3. The app must handle the Supabase auth callback on launch/resume before trying to read session state.
 4. Persist the Supabase session in secure storage on-device.
 5. Treat the Supabase `access_token` as the backend bearer token.
@@ -199,24 +206,13 @@ If the app needs Google Calendar access, the Google OAuth flow must be configure
 Practical rule for the frontend:
 - **Persist the first non-null Google refresh token you ever receive.**
 - Google often **does not return a new refresh token on every login**.
-- If a later login returns `refresh_token = null`, **do not overwrite** the previously stored Google refresh token in your backend DB.
+- If a later login returns `refresh_token = null`, **do not call** `POST /auth/google/sync` with an empty/null token. Only call it when you have a real token to persist.
 
-That means your token sync logic should be:
-1. Read the current stored `google_auth_tokens` row for the user if one exists.
-2. If Google returned a new non-null refresh token, update it.
-3. If Google returned `null`, keep the existing stored refresh token.
-
-The frontend should then:
-1. Persist the Supabase `access_token` and `refresh_token`.
-2. Call backend protected routes with `Authorization: Bearer <access_token>`.
-3. Create or update the app-level `users` row with:
-   - `auth_provider: "google"`
-   - `email`
-   - `username`
-   - `full_name`
-   - `profile_picture_url`
-   - `google_id`
-4. Optionally persist Google token details in `POST /google-auth-tokens` if the app needs them for later Google API access.
+The frontend should:
+1. Persist the Supabase `access_token` and `refresh_token` locally.
+2. Call `POST /auth/google/sync` with the user's email, Google `provider_user_id` (from `user.identities`), and the Google refresh token. This single call creates/updates both `public.users` and `public.google_auth_tokens`.
+3. Call backend protected routes with `Authorization: Bearer <access_token>`.
+4. The old multi-step flow (GET `/users/me` -> POST `/users` -> GET/POST/PATCH `/google-auth-tokens`) still works but is **no longer the recommended path**. Use `POST /auth/google/sync` instead.
 
 ### Recommended Frontend Sequence For Google Sign-In
 1. Start Google OAuth with Supabase.
@@ -224,11 +220,17 @@ The frontend should then:
 3. Read the Supabase session:
    - app bearer token: `session.accessToken`
    - app refresh token: `session.refreshToken`
-4. Read the Google identity/profile information from the authenticated user object.
-5. Call backend protected endpoints with the Supabase bearer token.
-6. Ensure the app-level `users` row exists with `auth_provider: "google"`.
-7. Create or update `/google-auth-tokens` with the latest Google token material.
-8. Only replace the stored Google refresh token if the latest OAuth result actually includes one.
+4. Extract the Google identity from the Supabase user object:
+   - `provider_user_id`: from `user.identities` where `provider == "google"` -> `identity.id`
+   - `email`: from `user.email`
+   - `google_refresh_token`: from the provider token data (only available if offline access was requested)
+5. **Call `POST /auth/google/sync`** with the extracted data. This single call:
+   - Creates or updates the `public.users` row
+   - Encrypts and persists the Google refresh token into `public.google_auth_tokens`
+   - Returns the full user object and `oauth_id`
+6. Store the returned `user.user_id` locally.
+7. Call backend protected endpoints with the Supabase bearer token.
+8. Only call `POST /auth/google/sync` again on subsequent logins if Google provides a new non-null refresh token.
 
 ### Flutter Android Implementation Checklist
 1. Add and configure `supabase_flutter` in the Flutter app.
@@ -255,17 +257,38 @@ final user = supabase.auth.currentUser;
    - `session?.accessToken != null`
    - `session?.refreshToken != null`
    - `user?.email != null`
-7. Build the backend auth header:
+
+7. Extract the Google identity:
+
+```dart
+final googleIdentity = user!.identities?.firstWhere(
+  (id) => id.provider == 'google',
+);
+final providerUserId = googleIdentity?.id ?? '';
+final email = user.email!;
+```
+
+8. **Call `POST /auth/google/sync`** (no auth header needed -- uses service role server-side):
+
+```dart
+final response = await http.post(
+  Uri.parse('https://planiteinvite.share.zrok.io/auth/google/sync'),
+  headers: {'Content-Type': 'application/json'},
+  body: jsonEncode({
+    'email': email,
+    'provider_user_id': providerUserId,
+    'google_refresh_token': googleRefreshToken, // only if non-null
+    // optional: 'username', 'full_name', 'profile_picture_url'
+  }),
+);
+// response.body contains: { user, oauth_id, message }
+```
+
+9. Build the backend auth header for subsequent protected calls:
 
 ```dart
 final authHeader = 'Bearer ${session!.accessToken}';
 ```
-
-8. Ensure the app user exists in backend `users`.
-   Recommended approach:
-   - first try `GET /users/me`
-   - if no row exists for this Google user, `POST /users`
-   - if a row exists and profile data changed, `PATCH /users/{user_id}`
 
 ### Backend Calls The Flutter App Should Make
 
@@ -281,7 +304,65 @@ Expected:
 {"status":"ok"}
 ```
 
-#### 2. Read current authenticated app user
+#### 2. Sync Google identity (RECOMMENDED -- single call replaces steps 3-7)
+
+```http
+POST https://planiteinvite.share.zrok.io/auth/google/sync
+Content-Type: application/json
+
+{
+  "email": "alice@gmail.com",
+  "provider_user_id": "google-oauth-subject-id",
+  "google_refresh_token": "<google-refresh-token>",
+  "username": "alice",
+  "full_name": "Alice Example",
+  "profile_picture_url": "https://..."
+}
+```
+
+Required fields: `email`, `provider_user_id`, `google_refresh_token`.
+Optional fields: `username` (defaults to email prefix), `full_name`, `profile_picture_url`.
+
+**No `Authorization` header is needed.** The backend uses its service role key to bypass RLS.
+
+Expected response (`201 Created`):
+
+```json
+{
+  "user": {
+    "user_id": 14,
+    "email": "alice@gmail.com",
+    "username": "alice",
+    "full_name": "Alice Example",
+    "auth_provider": "google",
+    "google_id": "google-oauth-subject-id",
+    "is_active": true,
+    "created_at": "2026-03-21T22:25:28Z",
+    "updated_at": "2026-03-21T22:25:28Z",
+    ...
+  },
+  "oauth_id": 1,
+  "message": "Google identity synced successfully."
+}
+```
+
+What this call does:
+- If no `public.users` row exists for this email: **creates** one with `auth_provider: "google"`.
+- If a row exists: **updates** it with `google_id` and `auth_provider: "google"`.
+- If no `public.google_auth_tokens` row exists for this user_id: **creates** one with the encrypted refresh token.
+- If a row exists: **updates** the `provider_user_id` and `refresh_token`.
+- The `google_refresh_token` is encrypted server-side if `CALENDAR_TOKEN_ENCRYPTION_KEY` is configured.
+- The refresh token is **never** returned in the response.
+
+**When to call:** Immediately after every successful Google OAuth redirect where Google returned a non-null refresh token. If Google did not return a refresh token, skip this call to avoid overwriting the previously stored token.
+
+**Why this matters for calendar sync:** The `POST /planning/initiate` endpoint reads the Google refresh token from `public.google_auth_tokens` to fetch the user's calendar events. If this row is missing or the refresh token is empty, calendar sync will fail for that user with a "no OAuth token row found" error.
+
+---
+
+The steps below (3-7) are the **legacy multi-step alternative**. Use them only if you cannot use `POST /auth/google/sync`.
+
+#### 3. Read current authenticated app user (legacy)
 
 ```http
 GET https://planiteinvite.share.zrok.io/users/me
@@ -313,7 +394,7 @@ Expected shape:
 }
 ```
 
-#### 3. Create backend app user if missing
+#### 4. Create backend app user if missing (legacy)
 
 ```http
 POST https://planiteinvite.share.zrok.io/users
@@ -332,7 +413,7 @@ Content-Type: application/json
 }
 ```
 
-#### 4. Update backend app user if needed
+#### 5. Update backend app user if needed (legacy)
 
 ```http
 PATCH https://planiteinvite.share.zrok.io/users/{user_id}
@@ -346,7 +427,7 @@ Content-Type: application/json
 }
 ```
 
-#### 5. Check existing stored Google tokens
+#### 6. Check existing stored Google tokens (legacy)
 
 ```http
 GET https://planiteinvite.share.zrok.io/google-auth-tokens
@@ -357,7 +438,7 @@ Use this to determine:
    - whether a token row already exists
    - whether an older non-null Google refresh token is already stored
 
-#### 6. Create Google token row if missing
+#### 7. Create Google token row if missing (legacy)
 
 ```http
 POST https://planiteinvite.share.zrok.io/google-auth-tokens
@@ -374,7 +455,7 @@ Content-Type: application/json
 }
 ```
 
-#### 7. Update Google token row safely
+#### 8. Update Google token row safely (legacy)
 
 ```http
 PATCH https://planiteinvite.share.zrok.io/google-auth-tokens/{oauth_id}
@@ -403,20 +484,17 @@ If Google did **not** return a refresh token this time:
 ### Practical Flutter Decision Tree
 1. User taps `Continue with Google`.
 2. Supabase OAuth completes.
-3. If there is no Supabase session:
-   stop and surface auth failure.
-4. If session exists:
-   call `GET /users/me`.
-5. If backend user exists:
-   update profile only if needed.
-6. If backend user does not exist:
-   create backend user with `auth_provider: "google"`.
-7. Read `/google-auth-tokens`.
-8. If no token row exists:
-   create one.
-9. If token row exists:
-   patch access token / id token / expiry.
-10. Only patch `refresh_token` when Google gives you a new non-null one.
+3. If there is no Supabase session: stop and surface auth failure.
+4. Extract `email`, `provider_user_id` from the Supabase user object.
+5. Extract the Google refresh token from the provider token data.
+6. **If Google returned a non-null refresh token:**
+   call `POST /auth/google/sync` with `email`, `provider_user_id`, and `google_refresh_token`.
+   This creates/updates the `public.users` row AND persists the encrypted refresh token.
+7. **If Google did NOT return a refresh token:**
+   call `POST /auth/google/sync` only if you have a previously stored refresh token to send.
+   Otherwise skip the call -- the backend already has the token from a prior login.
+8. Store the returned `user.user_id` locally.
+9. Use `Authorization: Bearer <session.accessToken>` for all subsequent protected backend calls.
 
 ### What The Frontend Must Persist Locally
 - Supabase `access_token`
@@ -426,9 +504,10 @@ If Google did **not** return a refresh token this time:
 - optionally the local timestamp for Google token expiry checks
 
 ### What The Frontend Should Never Assume
-- That Google will return a refresh token every login
-- That a Google-authenticated user already has a `users` row
-- That backend `register/login/refresh/logout` apply to Google OAuth signup
+- That Google will return a refresh token every login -- only call `/auth/google/sync` when you have a real token
+- That a Google-authenticated user already has a `public.users` row -- always call `/auth/google/sync` after the first OAuth redirect
+- That backend `register/login/refresh/logout` apply to Google OAuth signup -- Google users use `/auth/google/sync` instead
+- That calendar sync will work without calling `/auth/google/sync` -- the backend reads the refresh token from `google_auth_tokens`
 - That clearing the local session is enough without syncing persisted backend token rows when needed
 
 Example protected user payload after Google OAuth:
@@ -461,10 +540,10 @@ Example protected Google token payload:
 
 Important:
 - Google sign-in does **not** use an app password.
-- The refresh token for OAuth comes from the Supabase session and, if Google issues one, may also be stored in `google_auth_tokens.refresh_token`.
+- The refresh token for OAuth comes from the Supabase session and, if Google issues one, must be sent to `POST /auth/google/sync` for server-side persistence.
 - If the frontend only needs authenticated app access, the Supabase session `access_token` is the required backend credential.
-- If the frontend needs Google Calendar access, `google_auth_tokens` is the backend table intended to persist Google provider tokens.
-- The backend currently exposes CRUD for `/google-auth-tokens`, but it does **not** yet exchange Google codes/tokens on behalf of the frontend.
+- If the frontend needs Google Calendar access (planning/scheduling), `POST /auth/google/sync` is the **required** call to persist the Google refresh token into `google_auth_tokens`.
+- The backend also exposes raw CRUD for `/google-auth-tokens`, but `POST /auth/google/sync` is the recommended single-call path that handles user creation, token encryption, and service-role RLS bypass automatically.
 
 ## 📦 Protected Data Access
 
@@ -509,9 +588,19 @@ type User = {
 1. Use `GET /health` to confirm the backend target before debugging UI logic.
 2. Implement `register -> persist tokens -> fetch protected data`.
 3. Implement `login -> persist tokens -> fetch protected data`.
-4. Implement Google OAuth through Supabase, then create/update app data through protected backend routes.
+4. Implement Google OAuth through Supabase, then call `POST /auth/google/sync` to bridge the identity gap, then use protected backend routes.
 5. Implement token refresh using `/auth/refresh` before treating a session as expired.
 6. Implement logout by calling `/auth/logout`, then clearing local auth state.
+
+## Backend Resume Note
+- Latest backend resume source is `plan/MEMORY.md`.
+- As of 2026-03-21 (Phase 6.5):
+  - planning/session availability flow is live
+  - `busy_window` is the primary interval field in `calendar_snapshots`
+  - service-role-backed calendar sync code is implemented
+  - **Identity gap resolved:** `POST /auth/google/sync` is live and closes the gap between `auth.users` and `public.users` + `public.google_auth_tokens`
+  - `allenfencer316@gmail.com` has been synced: `public.users` row (`user_id=14`) and `public.google_auth_tokens` row (`oauth_id=1`) both exist
+  - To complete a real Google Calendar sync, the dummy refresh token for `allenfencer316@gmail.com` must be replaced with the user's actual Google OAuth refresh token by calling `POST /auth/google/sync` from the frontend after a real OAuth flow
 
 ## 📚 Required Backend References
 - `plan/API_SPEC.md`

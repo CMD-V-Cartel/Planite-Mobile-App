@@ -1,4 +1,5 @@
 import 'package:cursor_hack/features/auth/presentation/login_screen.dart';
+import 'package:cursor_hack/features/auth/presentation/signup_screen.dart';
 import 'package:cursor_hack/features/home/presentation/home_screen.dart';
 import 'package:cursor_hack/features/onboarding/presentation/onboarding_screen.dart';
 import 'package:cursor_hack/router/app_route_constant.dart';
@@ -9,6 +10,7 @@ class AppRouter {
   static final Set<String> _authRoutes = <String>{
     AppRouteConstant.onboarding,
     AppRouteConstant.login,
+    AppRouteConstant.signup,
   };
 
   static final GoRouter router = GoRouter(
@@ -32,6 +34,11 @@ class AppRouter {
         name: AppRouteConstant.login,
         path: AppRouteConstant.login,
         builder: (context, state) => const LoginScreen(),
+      ),
+      GoRoute(
+        name: AppRouteConstant.signup,
+        path: AppRouteConstant.signup,
+        builder: (context, state) => const SignupScreen(),
       ),
       GoRoute(
         name: AppRouteConstant.home,
