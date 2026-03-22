@@ -206,9 +206,34 @@ Flutter App (iOS)                    Backend (FastAPI)
 2. Initialize Supabase with `SUPABASE_URL` and `SUPABASE_ANON_KEY`.
 3. Add your **iOS OAuth Client ID** to `GoogleService-Info.plist` and configure the URL scheme in Xcode.
 4. Also set the **iOS Client ID** on the Supabase Google provider (Dashboard -> Auth -> Providers -> Google -> "iOS Client ID").
-5. Request the `calendar.readonly` scope if calendar sync is needed.
+5. Request the `calendar` scope (full read+write) for calendar sync. See **Google Calendar Scope Setup** below.
 6. Persist the Supabase session in secure storage on-device.
 7. Treat the Supabase `access_token` as the backend bearer token.
+
+### Google Calendar Scope Setup
+
+The app needs the **full calendar scope** (`https://www.googleapis.com/auth/calendar`) to both read and write events. The `calendar.readonly` scope only allows reading.
+
+**What to change in the Flutter app:**
+
+Replace:
+```dart
+scopes: ['email', 'https://www.googleapis.com/auth/calendar.readonly']
+```
+With:
+```dart
+scopes: ['email', 'https://www.googleapis.com/auth/calendar']
+```
+
+**What to do in Google Cloud Console:**
+
+1. Go to **https://console.cloud.google.com/apis/credentials/consent** (OAuth consent screen).
+2. Under **Scopes**, click **Add or remove scopes**.
+3. Search for `Google Calendar API` and check **`.../auth/calendar`** (not just `.../auth/calendar.readonly`).
+4. Save. If the app is in "Testing" mode, no further approval is needed. If it's in "Production", this scope may require Google verification.
+5. **Important:** After changing the scope, existing users must **sign out and sign back in** for the new scope to take effect. The old access token will still have the old (readonly) scope until a fresh login grants the new one.
+
+**No changes needed in Google Cloud Console for the API itself** — the Calendar API is already enabled. Only the OAuth consent screen scope list needs updating.
 
 ### Google Calendar / Long-Lived Access Rules
 
@@ -244,7 +269,7 @@ final _googleSignIn = GoogleSignIn(
   clientId: 'YOUR_IOS_CLIENT_ID.apps.googleusercontent.com',
   scopes: [
     'email',
-    'https://www.googleapis.com/auth/calendar.readonly',
+    'https://www.googleapis.com/auth/calendar',
   ],
 );
 ```
@@ -457,6 +482,20 @@ Authorization: Bearer <session.accessToken>
 
 Returns `200` with `{"message": "Group deleted successfully."}`. Non-owners get `403`.
 
+### Remove a Member from a Group (Owner Only)
+
+```http
+DELETE https://planiteinvite.share.zrok.io/groups/{group_id}/members/{user_id}
+Authorization: Bearer <session.accessToken>
+```
+
+Returns `200` with `{"message": "Member removed successfully."}`.
+
+Rules:
+- Only the group owner can remove members (`403` otherwise).
+- The owner cannot remove themselves (`400`).
+- Removing a non-existent member returns `404`.
+
 ### List Group Members
 
 ```http
@@ -583,6 +622,172 @@ await http.post(
   body: jsonEncode({'action': 'accept'}),
 );
 ```
+
+---
+
+## 📅 Syncfusion Calendar Integration (Phase 8)
+
+The backend serves calendar events in a format that maps directly to Syncfusion Flutter Calendar's `DataSource`.
+
+### GET /calendar/events
+
+Fetches the user's Google Calendar events for a specific date, already formatted for Syncfusion.
+
+```http
+GET https://planiteinvite.share.zrok.io/calendar/events?date=2026-03-22&tz_offset=4
+Authorization: Bearer <session.accessToken>
+```
+
+| Param | Type | Default | Description |
+|-------|------|---------|-------------|
+| `date` | `YYYY-MM-DD` | required | Day to fetch events for |
+| `tz_offset` | int | `0` | UTC offset in hours (e.g. `4` for Dubai / Gulf Standard Time) |
+
+Response:
+```json
+{
+  "events": [
+    {
+      "Id": "abc123",
+      "Subject": "Hackathon presentation",
+      "StartTime": "2026-03-22T15:00:00+04:00",
+      "EndTime": "2026-03-22T16:00:00+04:00",
+      "IsAllDay": false,
+      "Description": null,
+      "CategoryColor": "#1A73E8",
+      "Location": null,
+      "GoogleEventId": "abc123"
+    }
+  ],
+  "date": "2026-03-22",
+  "timezone": "Asia/Dubai"
+}
+```
+
+**Error handling:**
+- `424`: Token expired. The app should call `POST /auth/google/sync` with a fresh access token from the native SDK, then retry.
+- `502`: Google Calendar API failure (transient).
+
+### POST /calendar/events
+
+Creates an event. Pushes to Google Calendar if the user has a valid access token.
+
+```http
+POST https://planiteinvite.share.zrok.io/calendar/events
+Authorization: Bearer <session.accessToken>
+Content-Type: application/json
+
+{
+  "Subject": "Dinner with Team",
+  "StartTime": "2026-03-22T19:00:00+04:00",
+  "EndTime": "2026-03-22T20:30:00+04:00",
+  "Description": "Team dinner after hackathon",
+  "Location": "Dubai Marina"
+}
+```
+
+Response (`201`):
+```json
+{
+  "event": { "Id": "...", "Subject": "Dinner with Team", "StartTime": "...", "EndTime": "...", "IsAllDay": false, "Description": "...", "CategoryColor": "#1A73E8", "Location": "Dubai Marina", "GoogleEventId": "..." },
+  "pushed_to_google": true,
+  "message": "Event created on Google Calendar."
+}
+```
+
+`pushed_to_google` will be `false` if the token is expired; the event object is still returned.
+
+### Syncfusion DataSource Configuration (Flutter)
+
+```dart
+import 'package:syncfusion_flutter_calendar/calendar.dart';
+
+class EventDataSource extends CalendarDataSource {
+  EventDataSource(List<Map<String, dynamic>> events) {
+    appointments = events.map((e) => Appointment(
+      id: e['Id'],
+      subject: e['Subject'],
+      startTime: DateTime.parse(e['StartTime']),
+      endTime: DateTime.parse(e['EndTime']),
+      isAllDay: e['IsAllDay'] ?? false,
+      notes: e['Description'],
+      location: e['Location'],
+      color: _hexToColor(e['CategoryColor'] ?? '#1A73E8'),
+    )).toList();
+  }
+
+  static Color _hexToColor(String hex) {
+    hex = hex.replaceFirst('#', '');
+    if (hex.length == 6) hex = 'FF$hex';
+    return Color(int.parse(hex, radix: 16));
+  }
+}
+```
+
+### Lazy-Loading Events on Calendar Scroll
+
+When the user scrolls to a new day/week/month, fetch events for the visible date range:
+
+```dart
+SfCalendar(
+  view: CalendarView.week,
+  onViewChanged: (ViewChangedDetails details) {
+    final dates = details.visibleDates;
+    for (final date in {dates.first, dates.last}) {
+      final dateStr = '${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
+      _fetchEventsForDate(dateStr);
+    }
+  },
+  dataSource: _eventDataSource,
+)
+
+Future<void> _fetchEventsForDate(String date) async {
+  final resp = await http.get(
+    Uri.parse('$baseUrl/calendar/events?date=$date&tz_offset=4'),
+    headers: {'Authorization': authHeader},
+  );
+  if (resp.statusCode == 200) {
+    final events = jsonDecode(resp.body)['events'] as List;
+    // Merge into local DataSource and call setState
+  } else if (resp.statusCode == 424) {
+    // Token expired — trigger re-sync via POST /auth/google/sync
+  }
+}
+```
+
+### CategoryColor Mapping
+
+| Status | Color | Hex |
+|--------|-------|-----|
+| Confirmed | Blue | `#1A73E8` |
+| Tentative | Yellow | `#F4B400` |
+| Cancelled | Grey | `#9E9E9E` |
+
+### Live QA Results (2026-03-22)
+
+**GET verified:**
+```json
+{
+  "events": [
+    {
+      "Id": "7dqvh5e8aqlgs6hhcivh093bc2",
+      "Subject": "Hackathon presentation",
+      "StartTime": "2026-03-22T15:00:00+04:00",
+      "EndTime": "2026-03-22T16:00:00+04:00",
+      "IsAllDay": false,
+      "CategoryColor": "#1A73E8",
+      "GoogleEventId": "7dqvh5e8aqlgs6hhcivh093bc2"
+    }
+  ],
+  "date": "2026-03-22",
+  "timezone": "Asia/Dubai"
+}
+```
+
+**POST behavior:**
+- With `calendar.readonly` scope: event is returned in Syncfusion format, `pushed_to_google: false` (Google returns 403 "Insufficient Permission").
+- With `calendar` (full) scope: event is created on Google Calendar, `pushed_to_google: true`, `GoogleEventId` is populated.
+- **Fix:** Update the Flutter app's `GoogleSignIn` scopes from `calendar.readonly` to `calendar`, then sign out and back in. See **Google Calendar Scope Setup** above.
 
 ---
 

@@ -1,5 +1,6 @@
 import 'package:cursor_hack/config/env.dart';
 import 'package:cursor_hack/features/auth/controllers/auth_provider.dart';
+import 'package:cursor_hack/features/calendar/controllers/calendar_provider.dart';
 import 'package:cursor_hack/features/groups/controllers/groups_provider.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
@@ -35,6 +36,7 @@ class MyApp extends StatelessWidget {
           providers: [
             ChangeNotifierProvider(create: (_) => AuthProvider()),
             ChangeNotifierProvider(create: (_) => GroupsProvider()),
+            ChangeNotifierProvider(create: (_) => CalendarProvider()),
           ],
           child: MaterialApp.router(
             debugShowCheckedModeBanner: false,

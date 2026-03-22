@@ -19,6 +19,9 @@ class ApiUrls {
   static const String myInvites = "invites/me";
   static String respondInvite(int inviteId) => "invites/$inviteId/respond";
 
+  ///[CALENDAR]
+  static const String calendarEvents = "calendar/events";
+
   ///[HOME]
   static const String getMyTasks = "my-tasks";
   static const String getTaskById = "task/";

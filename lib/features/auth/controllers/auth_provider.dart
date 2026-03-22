@@ -14,7 +14,7 @@ class AuthProvider with ChangeNotifier {
 
   static const List<String> _googleScopes = <String>[
     'email',
-    'https://www.googleapis.com/auth/calendar.readonly',
+    'https://www.googleapis.com/auth/calendar',
   ];
 
   Future<void> _ensureGoogleInit() async {
@@ -204,6 +204,12 @@ class AuthProvider with ChangeNotifier {
       if (session.refreshToken != null) {
         await StorageService.instance
             .saveRefreshToken(token: session.refreshToken!);
+      }
+
+      // Persist Google access token for direct Calendar API calls.
+      if (accessToken != null) {
+        await StorageService.instance
+            .saveGoogleAccessToken(token: accessToken);
       }
 
       // Extract identity data.
