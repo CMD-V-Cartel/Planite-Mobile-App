@@ -10,17 +10,19 @@ Built for the **Cursor Hackathon 2026** by CMD-V-Cartel.
 
 ### Screenshots
 
-| Login | Create account |
-| :---: | :---: |
-| ![Login screen](demo/login_screen.png) | ![Create account screen](demo/create_account_screen.png) |
+Click any image to open the full-resolution file.
 
-| Calendar | Groups |
-| :---: | :---: |
-| ![Calendar screen](demo/calendar_screen.png) | ![Groups screen](demo/groups_screen.png) |
-
-![Groups and members](demo/groups_users_screen.png)
-
-*Group detail with members*
+<p align="center">
+  <a href="demo/login_screen.png"><img src="demo/login_screen.png" width="200" alt="Login screen" /></a>
+  &nbsp;
+  <a href="demo/create_account_screen.png"><img src="demo/create_account_screen.png" width="200" alt="Create account screen" /></a>
+  &nbsp;
+  <a href="demo/calendar_screen.png"><img src="demo/calendar_screen.png" width="200" alt="Calendar screen" /></a>
+  <br /><br />
+  <a href="demo/groups_screen.png"><img src="demo/groups_screen.png" width="200" alt="Groups screen" /></a>
+  &nbsp;
+  <a href="demo/groups_users_screen.png"><img src="demo/groups_users_screen.png" width="200" alt="Group detail with members" /></a>
+</p>
 
 ---
 
