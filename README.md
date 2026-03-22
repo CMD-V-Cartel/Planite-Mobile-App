@@ -4,6 +4,24 @@ An AI-powered group scheduling app built with Flutter. Planite connects to Googl
 
 Built for the **Cursor Hackathon 2026** by CMD-V-Cartel.
 
+## Demo
+
+**Video walkthrough:** [Planite on YouTube](https://youtu.be/CYC1vzSygFg)
+
+### Screenshots
+
+| Login | Create account |
+| :---: | :---: |
+| ![Login screen](demo/login_screen.png) | ![Create account screen](demo/create_account_screen.png) |
+
+| Calendar | Groups |
+| :---: | :---: |
+| ![Calendar screen](demo/calendar_screen.png) | ![Groups screen](demo/groups_screen.png) |
+
+![Groups and members](demo/groups_users_screen.png)
+
+*Group detail with members*
+
 ---
 
 ## Features
