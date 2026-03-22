@@ -158,6 +158,11 @@ Navigation uses `go_router` for top-level routes (onboarding → auth → home) 
 
 ---
 
+## For Backend Please Check:
+https://github.com/CMD-V-Cartel/planite-backend.git
+
+---
+
 ## License
 
 This project was built for a hackathon and is not currently licensed for redistribution.
