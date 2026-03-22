@@ -112,3 +112,64 @@ class GroupInvite {
     );
   }
 }
+
+/// Matches backend `event_proposals` row (Phase 10).
+class EventProposal {
+  EventProposal({
+    required this.proposalId,
+    required this.groupId,
+    required this.proposerId,
+    required this.subject,
+    required this.startTime,
+    required this.endTime,
+    required this.status,
+    this.description,
+    this.location,
+    this.acceptedBy = const [],
+    this.declinedBy = const [],
+    this.createdAt,
+  });
+
+  final int proposalId;
+  final int groupId;
+  final int proposerId;
+  final String subject;
+  final String startTime;
+  final String endTime;
+  final String status;
+  final String? description;
+  final String? location;
+  final List<int> acceptedBy;
+  final List<int> declinedBy;
+  final String? createdAt;
+
+  DateTime? get startDateTime => DateTime.tryParse(startTime)?.toLocal();
+  DateTime? get endDateTime => DateTime.tryParse(endTime)?.toLocal();
+
+  bool get isProposed => status == 'proposed';
+  bool get isConfirmed => status == 'confirmed';
+  bool get isCancelled => status == 'cancelled';
+
+  factory EventProposal.fromJson(Map<String, dynamic> json) {
+    return EventProposal(
+      proposalId: json['proposal_id'] as int,
+      groupId: json['group_id'] as int,
+      proposerId: json['proposer_id'] as int? ?? 0,
+      subject: json['subject'] as String? ?? '(No title)',
+      startTime: json['start_time'] as String? ?? '',
+      endTime: json['end_time'] as String? ?? '',
+      status: json['status'] as String? ?? 'proposed',
+      description: json['description'] as String?,
+      location: json['location'] as String?,
+      acceptedBy: (json['accepted_by'] as List<dynamic>?)
+              ?.map((e) => e as int)
+              .toList() ??
+          const [],
+      declinedBy: (json['declined_by'] as List<dynamic>?)
+              ?.map((e) => e as int)
+              .toList() ??
+          const [],
+      createdAt: json['created_at'] as String?,
+    );
+  }
+}

@@ -1,5 +1,6 @@
 import 'package:cursor_hack/features/ai_chat/presentation/ai_chat_screen.dart';
 import 'package:cursor_hack/features/auth/controllers/auth_provider.dart';
+import 'package:cursor_hack/features/calendar/controllers/calendar_provider.dart';
 import 'package:cursor_hack/features/calendar/presentation/calendar_screen.dart';
 import 'package:cursor_hack/features/groups/presentation/groups_screen.dart';
 import 'package:flutter/material.dart';
@@ -21,6 +22,14 @@ class _HomeScreenState extends State<HomeScreen> {
     GroupsScreen(),
     AiChatScreen(),
   ];
+
+  void _switchTab(int index) {
+    if (index == _currentIndex) return;
+    setState(() => _currentIndex = index);
+    if (index == 0) {
+      context.read<CalendarProvider>().refreshIfStale(DateTime.now());
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -46,19 +55,19 @@ class _HomeScreenState extends State<HomeScreen> {
                   icon: Icons.calendar_today_rounded,
                   label: 'Calendar',
                   isActive: _currentIndex == 0,
-                  onTap: () => setState(() => _currentIndex = 0),
+                  onTap: () => _switchTab(0),
                 ),
                 _NavItem(
                   icon: Icons.chat_bubble_outline_rounded,
                   label: 'Groups',
                   isActive: _currentIndex == 1,
-                  onTap: () => setState(() => _currentIndex = 1),
+                  onTap: () => _switchTab(1),
                 ),
                 _NavItem(
                   icon: Icons.auto_awesome_rounded,
-                  label: 'AI Chat',
+                  label: 'AI Planner',
                   isActive: _currentIndex == 2,
-                  onTap: () => setState(() => _currentIndex = 2),
+                  onTap: () => _switchTab(2),
                 ),
               ],
             ),
@@ -124,7 +133,7 @@ class _AppDrawer extends StatelessWidget {
             ),
             _DrawerItem(
               icon: Icons.auto_awesome_rounded,
-              label: 'AI Chat',
+              label: 'AI Planner',
               onTap: () => Navigator.of(context).pop(),
             ),
             const Spacer(),

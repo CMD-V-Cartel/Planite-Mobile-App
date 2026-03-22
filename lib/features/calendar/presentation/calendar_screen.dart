@@ -40,22 +40,31 @@ class _CalendarScreenState extends State<CalendarScreen>
       });
     });
 
-    WidgetsBinding.instance
-        .addPostFrameCallback((_) => _fetchForDate(now));
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _fetchForDate(now);
+      context.read<CalendarProvider>().addListener(_onProviderChanged);
+    });
   }
 
   @override
   void dispose() {
+    context.read<CalendarProvider>().removeListener(_onProviderChanged);
     _controller.dispose();
     super.dispose();
   }
 
+  /// Rebuilds the data source when the provider's event list changes.
+  /// Does NOT trigger any network calls — that avoids the polling loop.
+  void _onProviderChanged() {
+    if (mounted) _rebuildDataSource();
+  }
+
   DateTime get _displayDate => _controller.displayDate ?? DateTime.now();
 
-  Future<void> _fetchForDate(DateTime date) async {
+  Future<void> _fetchForDate(DateTime date, {bool force = false}) async {
     await context
         .read<CalendarProvider>()
-        .fetchEventsForDate(date);
+        .fetchEventsForDate(date, force: force);
     if (mounted) _rebuildDataSource();
   }
 
@@ -81,7 +90,7 @@ class _CalendarScreenState extends State<CalendarScreen>
       _controller.displayDate = day;
       _controller.selectedDate = day;
     });
-    _fetchForDate(day);
+    _fetchForDate(day, force: true);
   }
 
   void _toggleTask(TaskAppointment task) {

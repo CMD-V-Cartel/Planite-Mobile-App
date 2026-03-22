@@ -21,11 +21,14 @@ class CalendarRepository {
     });
   }
 
-  /// GET /calendar/events?date=YYYY-MM-DD&tz_offset=4
+  static int get _deviceTzOffset => DateTime.now().timeZoneOffset.inHours;
+
+  /// GET /calendar/events?date=YYYY-MM-DD&tz_offset=N
   Future<List<CalendarEvent>> fetchEvents({
     required String date,
-    int tzOffset = 4,
+    int? tzOffset,
   }) async {
+    tzOffset ??= _deviceTzOffset;
     try {
       final response = await _dio.get(
         ApiUrls.calendarEvents,

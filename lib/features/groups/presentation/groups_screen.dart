@@ -36,11 +36,17 @@ class _GroupsScreenState extends State<GroupsScreen>
   }
 
   void _openGroup(Group group) {
-    Navigator.of(context).push<void>(
-      MaterialPageRoute<void>(
-        builder: (_) => GroupDetailScreen(group: group),
-      ),
-    );
+    Navigator.of(context)
+        .push<void>(
+          MaterialPageRoute<void>(
+            builder: (_) => GroupDetailScreen(group: group),
+          ),
+        )
+        .then((_) {
+          if (mounted) {
+            context.read<GroupsProvider>().fetchGroups();
+          }
+        });
   }
 
   void _showCreateGroupDialog() {

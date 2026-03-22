@@ -172,6 +172,47 @@ class GroupsRepository {
     }
   }
 
+  // ---------------------------------------------------------------------------
+  // Event Proposals
+  // ---------------------------------------------------------------------------
+
+  /// GET /event-proposals/group/{group_id}
+  Future<List<EventProposal>> getGroupProposals({
+    required int groupId,
+  }) async {
+    try {
+      final response = await _dio.get(
+        ApiUrls.groupProposals(groupId),
+        options: await _authOptions(),
+      );
+      final list = response.data as List<dynamic>;
+      return list
+          .map((e) => EventProposal.fromJson(e as Map<String, dynamic>))
+          .toList();
+    } on DioException catch (e) {
+      log('getGroupProposals error: ${e.response?.data}');
+      throw _extractError(e, 'Failed to load proposals');
+    }
+  }
+
+  /// POST /event-proposals/{proposal_id}/respond
+  Future<Map<String, dynamic>> respondToProposal({
+    required int proposalId,
+    required String action,
+  }) async {
+    try {
+      final response = await _dio.post(
+        ApiUrls.respondProposal(proposalId),
+        data: {'action': action},
+        options: await _authOptions(),
+      );
+      return response.data as Map<String, dynamic>;
+    } on DioException catch (e) {
+      log('respondToProposal error: ${e.response?.data}');
+      throw _extractError(e, 'Failed to respond to proposal');
+    }
+  }
+
   String _extractError(DioException e, String fallback) {
     final detail = e.response?.data;
     if (detail is Map<String, dynamic> && detail['detail'] != null) {

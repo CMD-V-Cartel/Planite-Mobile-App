@@ -24,18 +24,31 @@ class GroupsProvider with ChangeNotifier {
   // Groups
   // ---------------------------------------------------------------------------
 
-  /// GET /groups — fetch all groups the user belongs to.
+  /// GET /groups — fetch all groups the user belongs to, then eagerly
+  /// load member lists so the group tiles can show accurate counts.
   Future<void> fetchGroups() async {
     _loadingGroups = true;
     _error = null;
     notifyListeners();
     try {
       _groups = await _repo.getMyGroups();
+      _loadingGroups = false;
+      notifyListeners();
+
+      // Eagerly fetch members for every group in parallel.
+      await Future.wait(
+        _groups.map((g) async {
+          try {
+            g.members = await _repo.getGroupMembers(groupId: g.groupId);
+          } catch (_) {}
+        }),
+      );
+      notifyListeners();
     } catch (e) {
       _error = e.toString();
+      _loadingGroups = false;
+      notifyListeners();
     }
-    _loadingGroups = false;
-    notifyListeners();
   }
 
   Future<void> createGroup(String name) async {
@@ -143,6 +156,62 @@ class GroupsProvider with ChangeNotifier {
     } catch (e) {
       _error = e.toString();
       notifyListeners();
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Event Proposals
+  // ---------------------------------------------------------------------------
+
+  List<EventProposal> _proposals = [];
+  List<EventProposal> get proposals => _proposals;
+
+  bool _loadingProposals = false;
+  bool get loadingProposals => _loadingProposals;
+
+  Future<List<EventProposal>> fetchProposals(int groupId) async {
+    _loadingProposals = true;
+    notifyListeners();
+    try {
+      _proposals = await _repo.getGroupProposals(groupId: groupId);
+    } catch (e) {
+      debugPrint('fetchProposals error: $e');
+      _proposals = [];
+    }
+    _loadingProposals = false;
+    notifyListeners();
+    return _proposals;
+  }
+
+  /// Returns `({String? error, bool scheduled})`.
+  /// [error] is null on success. [scheduled] is true when all members
+  /// accepted and the event was pushed to Google Calendar.
+  Future<({String? error, bool scheduled})> respondToProposal({
+    required int proposalId,
+    required String action,
+    required int groupId,
+  }) async {
+    try {
+      final data = await _repo.respondToProposal(
+        proposalId: proposalId,
+        action: action,
+      );
+      if (data['proposal'] != null) {
+        final updated = EventProposal.fromJson(
+          data['proposal'] as Map<String, dynamic>,
+        );
+        final idx = _proposals.indexWhere(
+          (p) => p.proposalId == proposalId,
+        );
+        if (idx != -1) {
+          _proposals[idx] = updated;
+        }
+      }
+      notifyListeners();
+      final scheduled = data['scheduled'] == true;
+      return (error: null, scheduled: scheduled);
+    } catch (e) {
+      return (error: e.toString(), scheduled: false);
     }
   }
 }

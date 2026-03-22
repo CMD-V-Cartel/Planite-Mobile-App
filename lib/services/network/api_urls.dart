@@ -22,6 +22,20 @@ class ApiUrls {
   ///[CALENDAR]
   static const String calendarEvents = "calendar/events";
 
+  ///[PLANNING]
+  static String groupAvailability(int groupId) =>
+      "planning/group-availability/$groupId";
+
+  ///[AGENT]
+  static const String agentText = "agent/interact/text";
+  static const String agentAudio = "agent/interact";
+
+  ///[EVENT PROPOSALS]
+  static String groupProposals(int groupId) =>
+      "event-proposals/group/$groupId";
+  static String respondProposal(int proposalId) =>
+      "event-proposals/$proposalId/respond";
+
   ///[HOME]
   static const String getMyTasks = "my-tasks";
   static const String getTaskById = "task/";

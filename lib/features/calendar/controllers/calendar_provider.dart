@@ -82,6 +82,28 @@ class CalendarProvider with ChangeNotifier {
     notifyListeners();
   }
 
+  /// True when events were modified outside the calendar (AI agent,
+  /// proposal accept, etc.) and a re-fetch is needed.
+  bool _stale = false;
+  bool get stale => _stale;
+
+  /// Marks calendar data as stale so the next [refreshIfStale] call
+  /// triggers a re-fetch. Does NOT notify listeners or start polling.
+  void invalidateCache() {
+    _stale = true;
+  }
+
+  /// If the cache was marked stale by [invalidateCache], force-fetches
+  /// events for [date] after a short delay (lets the backend finish syncing
+  /// with Google Calendar). No-op when the cache is fresh.
+  Future<void> refreshIfStale(DateTime date) async {
+    if (!_stale) return;
+    _stale = false;
+    _fetchedDates.clear();
+    await Future.delayed(const Duration(milliseconds: 800));
+    await fetchEventsForDate(date, force: true);
+  }
+
   /// Create a new event via POST /calendar/events.
   /// Returns null on success, error message on failure.
   Future<String?> createEvent({

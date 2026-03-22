@@ -46,6 +46,9 @@ dependencies:
   flutter_dotenv: ^5.2.1
   speech_to_text: ^7.3.0
   google_sign_in: ^7.2.0
+  record: 6.2.0
+  path_provider: ^2.1.5
+  path: ^1.9.1
 
 dev_dependencies:
   flutter_test:

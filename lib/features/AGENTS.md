@@ -838,6 +838,334 @@ type User = {
 5. Implement token refresh using `/auth/refresh` before treating a session as expired.
 6. Implement logout by calling `/auth/logout`, then clearing local auth state.
 
+## 🧠 AI Agent API (Phase 9)
+
+The backend includes an AI agent powered by Gemini that can understand natural language scheduling requests, fetch calendar context, and coordinate group planning.
+
+### POST /agent/interact (Multipart — supports audio)
+
+Accepts text or audio input. If audio is provided, it's transcribed via ElevenLabs before processing.
+
+```http
+POST https://planiteinvite.share.zrok.io/agent/interact
+Authorization: Bearer <session.accessToken>
+Content-Type: multipart/form-data
+
+query=Plan a dinner this weekend for my group Friends
+tz_offset=4
+audio=<optional .wav/.mp3 file>
+```
+
+### POST /agent/interact/text (JSON — text only)
+
+Simpler JSON endpoint for text-only queries.
+
+```http
+POST https://planiteinvite.share.zrok.io/agent/interact/text
+Authorization: Bearer <session.accessToken>
+Content-Type: application/json
+
+{
+  "query": "Plan a dinner this weekend for my group Friends",
+  "tz_offset": 4
+}
+```
+
+### Timezone (IMPORTANT)
+
+The `tz_offset` parameter tells the backend the user's local UTC offset so that times are displayed and scheduled correctly. **The frontend MUST derive this from the device and send it with every agent request.**
+
+```dart
+final tzOffset = DateTime.now().timeZoneOffset.inHours; // e.g. 4 for Dubai (UTC+4)
+```
+
+Always pass `tz_offset` in both `/agent/interact` (Form field) and `/agent/interact/text` (JSON body). The default is `4` but relying on the default will produce wrong times for users in other timezones.
+
+### Response Schema — Group Planning (3 Cases)
+
+The agent's group_planning behavior depends on whether the user specified a time and whether that time is free:
+
+**Case 1: Specific time + everyone free → Proposal created, no suggestions**
+```json
+{
+  "intent": "group_planning",
+  "response": "Everyone in Friends is free! I've proposed Dinner on Saturday, March 22 at 09:00 PM to 11:00 PM. Group members will need to accept before it's added to everyone's calendar.",
+  "proposed_slots": [],
+  "event_proposal": {
+    "proposal_id": 1,
+    "group_id": 6,
+    "subject": "Dinner",
+    "start_time": "2026-03-22T21:00:00+04:00",
+    "end_time": "2026-03-22T23:00:00+04:00",
+    "status": "proposed"
+  },
+  "group_id": 6,
+  "group_name": "Friends"
+}
+```
+
+**Case 2: Specific time + NOT everyone free → Nearby suggestions, no proposal**
+```json
+{
+  "intent": "group_planning",
+  "response": "Not everyone in Friends is free at 09:00 PM. Here are the closest times when everyone is available:\n  • Saturday, March 22 06:00 PM – 08:00 PM (3 members available)\n  • Saturday, March 22 11:00 PM – 01:00 AM (3 members available)",
+  "proposed_slots": [
+    { "free_window": "Saturday, March 22 06:00 PM – 08:00 PM", "participant_count": 3 },
+    { "free_window": "Saturday, March 22 11:00 PM – 01:00 AM", "participant_count": 3 }
+  ],
+  "event_proposal": null,
+  "group_id": 6,
+  "group_name": "Friends"
+}
+```
+
+**Case 3: Vague request (no specific time) → AI suggests times, no proposal**
+```json
+{
+  "intent": "group_planning",
+  "response": "Based on everyone's schedule in Friends, here are some good times for a dinner party:\n1. Saturday, March 22 at 7:00 PM\n2. Sunday, March 23 at 6:00 PM\n3. Saturday, March 22 at 12:00 PM",
+  "proposed_slots": [
+    { "free_window": "Saturday, March 22 07:00 PM – 09:00 PM", "participant_count": 3 },
+    { "free_window": "Sunday, March 23 06:00 PM – 08:00 PM", "participant_count": 3 }
+  ],
+  "event_proposal": null,
+  "group_id": 6,
+  "group_name": "Friends"
+}
+```
+
+### Intent Types
+
+| Intent | What it does | Key response fields |
+|--------|-------------|---------------------|
+| `query` | Answers a question about the user's schedule | `response`, `context_events` |
+| `personal_event` | Creates a calendar event (pushes to Google if token is valid) | `response`, `created_event` |
+| `group_planning` | Checks availability, creates proposal only when everyone is free | `response`, `proposed_slots`, `event_proposal`, `group_id`, `group_name` |
+
+### Suggestion Logic (When does the agent show alternatives?)
+
+| Scenario | Proposal created? | Suggestions shown? |
+|----------|:-:|:-:|
+| User says "dinner at 9 PM" and everyone is free at 9 PM | Yes | No |
+| User says "dinner at 9 PM" but someone is busy at 9 PM | No | Yes — nearest available times |
+| User says "dinner this weekend" (no specific time) | No | Yes — AI picks the best options |
+
+### Displaying AI Responses in the UI
+
+The `response` field is always **plain natural language** — display this as a chat message bubble.
+
+```dart
+// Display AI response as a chat bubble
+Text(agentResponse['response']);
+
+// CASE 1: event_proposal present → show proposal card
+if (agentResponse['event_proposal'] != null) {
+  final proposal = agentResponse['event_proposal'];
+  // Show: "Dinner — Sat Mar 22, 9:00 PM to 11:00 PM"
+  // With accept/decline buttons for other group members
+}
+
+// CASE 2 & 3: proposed_slots present but no proposal → show suggestion chips
+if (agentResponse['event_proposal'] == null &&
+    (agentResponse['proposed_slots'] as List).isNotEmpty) {
+  // Show tappable suggestion chips like:
+  //   "Saturday, March 22 06:00 PM – 08:00 PM"
+  //   "Saturday, March 22 11:00 PM – 01:00 AM"
+  // When tapped, send a follow-up agent request with that specific time
+}
+
+// PERSONAL EVENT: show confirmation card
+if (agentResponse['created_event'] != null) {
+  // Show: "Event created: Dinner with Team at 7 PM ✓"
+}
+```
+
+**Decision rule for the UI:**
+- `event_proposal` is non-null → show the proposal card (accept/decline for other members) + the AI message as context
+- `event_proposal` is null but `proposed_slots` is non-empty → show suggestion chips the user can tap to re-request that slot
+- `created_event` is non-null → show a confirmation card ("Event created")
+- Otherwise → show only the `response` text as a chat reply
+
+### Error Handling
+
+| Code | Meaning |
+|------|---------|
+| 401 | Missing/invalid JWT |
+| 422 | No query or audio provided |
+| 424 | No Google access token (calendar context unavailable) |
+| 429 | Gemini API quota exceeded — retry later |
+| 502 | Gemini or ElevenLabs API failure |
+| 503 | API keys not configured |
+
+### Flutter Integration Example
+
+```dart
+Future<Map<String, dynamic>> askAgent(String query) async {
+  final tzOffset = DateTime.now().timeZoneOffset.inHours;
+  final resp = await http.post(
+    Uri.parse('$baseUrl/agent/interact/text'),
+    headers: {
+      'Authorization': authHeader,
+      'Content-Type': 'application/json',
+    },
+    body: jsonEncode({'query': query, 'tz_offset': tzOffset}),
+  );
+  return jsonDecode(resp.body);
+}
+
+// For audio input:
+Future<Map<String, dynamic>> askAgentWithAudio(File audioFile) async {
+  final tzOffset = DateTime.now().timeZoneOffset.inHours;
+  final request = http.MultipartRequest('POST', Uri.parse('$baseUrl/agent/interact'));
+  request.headers['Authorization'] = authHeader;
+  request.fields['tz_offset'] = '$tzOffset';
+  request.files.add(await http.MultipartFile.fromPath('audio', audioFile.path));
+  final resp = await request.send();
+  final body = await resp.stream.bytesToString();
+  return jsonDecode(body);
+}
+```
+
+---
+
+## 📋 Event Proposals API (Phase 10)
+
+When the AI agent suggests a group event, it creates an **event proposal** instead of directly scheduling. Group members must accept before the event is pushed to everyone's Google Calendar.
+
+### Flow
+
+```
+User asks agent with specific time (e.g. "dinner at 9 PM")
+  → Agent checks group availability for that time
+  → IF everyone free → Creates proposal (status: "proposed", proposer auto-accepted)
+  → IF NOT everyone free → Returns nearby suggestions (no proposal created)
+                         → User picks a suggestion → sends follow-up request → proposal created
+
+User asks agent with vague request (e.g. "dinner this weekend")
+  → Agent checks full window availability
+  → AI suggests best times → User picks one → sends follow-up request → proposal created
+
+Other members → GET /event-proposals/group/{id} → See pending proposals
+             → POST /event-proposals/{id}/respond → Accept or decline
+             → When ALL accept → Event pushed to every member's Google Calendar
+```
+
+### GET /event-proposals/group/{group_id}
+
+Lists all event proposals for a group (newest first).
+
+```http
+GET https://planiteinvite.share.zrok.io/event-proposals/group/6
+Authorization: Bearer <session.accessToken>
+```
+
+Response (`200`):
+```json
+[
+  {
+    "proposal_id": 1,
+    "group_id": 6,
+    "proposer_id": 16,
+    "subject": "Dinner",
+    "description": null,
+    "start_time": "2026-03-22T19:00:00+04:00",
+    "end_time": "2026-03-22T21:00:00+04:00",
+    "location": null,
+    "status": "proposed",
+    "accepted_by": [16],
+    "declined_by": [],
+    "created_at": "2026-03-22T18:00:00Z"
+  }
+]
+```
+
+The caller must be a member of the group (`403` otherwise).
+
+### POST /event-proposals/{proposal_id}/respond
+
+Accept or decline an event proposal.
+
+```http
+POST https://planiteinvite.share.zrok.io/event-proposals/1/respond
+Authorization: Bearer <session.accessToken>
+Content-Type: application/json
+
+{ "action": "accept" }
+```
+
+`action` must be `"accept"` or `"decline"`.
+
+Response (`200`):
+```json
+{
+  "message": "Accepted!",
+  "proposal": {
+    "proposal_id": 1,
+    "group_id": 6,
+    "proposer_id": 16,
+    "subject": "Dinner",
+    "start_time": "2026-03-22T19:00:00+04:00",
+    "end_time": "2026-03-22T21:00:00+04:00",
+    "status": "confirmed",
+    "accepted_by": [16, 18],
+    "declined_by": [],
+    "created_at": "2026-03-22T18:00:00Z"
+  },
+  "scheduled": true
+}
+```
+
+**Status transitions:**
+- When **all** group members accept → `status` becomes `"confirmed"`, `scheduled: true`, event pushed to every member's Google Calendar
+- When majority decline → `status` becomes `"cancelled"`
+- While waiting for responses → `status` stays `"proposed"`
+
+### Error Codes
+
+| Code | Condition |
+|------|-----------|
+| 403 | Not a member of the group |
+| 404 | Proposal not found |
+| 409 | Already responded / Proposal already confirmed or cancelled |
+
+### Flutter Integration — Proposal Cards
+
+```dart
+// Fetch proposals for a group
+Future<List<dynamic>> fetchProposals(int groupId) async {
+  final resp = await http.get(
+    Uri.parse('$baseUrl/event-proposals/group/$groupId'),
+    headers: {'Authorization': authHeader},
+  );
+  return jsonDecode(resp.body) as List;
+}
+
+// Respond to a proposal
+Future<Map<String, dynamic>> respondToProposal(int proposalId, String action) async {
+  final resp = await http.post(
+    Uri.parse('$baseUrl/event-proposals/$proposalId/respond'),
+    headers: {'Authorization': authHeader, 'Content-Type': 'application/json'},
+    body: jsonEncode({'action': action}),
+  );
+  return jsonDecode(resp.body);
+}
+```
+
+### UI Recommendations for Proposals
+
+1. **In the chat interface:** When the agent returns `event_proposal`, show an inline proposal card with:
+   - Subject, date, and time
+   - Acceptance progress bar (e.g. "1/3 accepted")
+   - Accept/Decline buttons (only for non-proposer members)
+
+2. **In the group detail screen:** Show a "Pending Proposals" section listing all `status: "proposed"` proposals.
+
+3. **Push notifications (optional):** When a new proposal is created, notify group members. When all accept, notify everyone the event is confirmed.
+
+4. **After confirmation:** The `scheduled: true` flag in the response means the event is now on Google Calendar. Refresh the calendar view.
+
+---
+
 ## Backend Resume Note
 - Latest backend resume source is `plan/MEMORY.md`.
 - As of 2026-03-22 (Phase 7 -- Native OAuth):
