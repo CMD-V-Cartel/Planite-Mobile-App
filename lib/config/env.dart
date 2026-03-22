@@ -15,3 +15,4 @@ String envOrThrow(String key) {
 
 String get supabaseUrl => envOrThrow('SUPABASE_URL');
 String get supabaseAnonKey => envOrThrow('SUPABASE_ANON_KEY');
+String get googleWebClientId => envOrThrow('GOOGLE_WEB_CLIENT_ID');

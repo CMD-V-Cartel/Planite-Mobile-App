@@ -86,33 +86,30 @@ class AuthRepository {
     }
   }
 
-  /// Calls `POST /auth/google/sync` to bridge the identity gap between
-  /// `auth.users` and `public.users` + `public.google_auth_tokens`.
+  /// Calls `POST /auth/google/exchange` to exchange the native Google
+  /// `serverAuthCode` for real Google tokens server-side. The backend handles
+  /// token exchange, user creation/update, and encrypted token storage.
   /// No Authorization header needed -- backend uses service role key.
-  Future<Map<String, dynamic>> googleSync({
+  Future<Map<String, dynamic>> googleExchange({
+    required String serverAuthCode,
     required String email,
     required String providerUserId,
-    String? googleRefreshToken,
-    String? username,
     String? fullName,
     String? profilePictureUrl,
   }) async {
     try {
       final Map<String, dynamic> body = {
+        'server_auth_code': serverAuthCode,
         'email': email,
         'provider_user_id': providerUserId,
       };
-      if (googleRefreshToken != null) {
-        body['google_refresh_token'] = googleRefreshToken;
-      }
-      if (username != null) body['username'] = username;
       if (fullName != null) body['full_name'] = fullName;
       if (profilePictureUrl != null) {
         body['profile_picture_url'] = profilePictureUrl;
       }
 
       final response = await Dio().post(
-        ApiUrls.baseUrl + ApiUrls.googleSyncUrl,
+        ApiUrls.baseUrl + ApiUrls.googleExchangeUrl,
         data: body,
         options: Options(
           headers: {'Content-Type': 'application/json'},
@@ -126,7 +123,60 @@ class AuthRepository {
       }
       return data;
     } on DioException catch (e) {
+      log('googleExchange DioException: $e');
+      if (e.response != null) {
+        return Future.error(
+          e.response?.data['detail'] ?? 'Google exchange failed',
+        );
+      }
+      return Future.error('Google exchange failed: $e');
+    } catch (e) {
+      log('googleExchange error: $e');
+      return Future.error(e.toString());
+    }
+  }
+
+  /// Calls `POST /auth/google/sync` to create/update the `public.users` row
+  /// and persist the Google refresh token for calendar sync.
+  Future<Map<String, dynamic>> googleSync({
+    required String email,
+    required String providerUserId,
+    required String googleAccessToken,
+    String? fullName,
+    String? profilePictureUrl,
+  }) async {
+    try {
+      final Map<String, dynamic> body = {
+        'email': email,
+        'provider_user_id': providerUserId,
+        'google_access_token': googleAccessToken,
+      };
+      if (fullName != null) body['full_name'] = fullName;
+      if (profilePictureUrl != null) {
+        body['profile_picture_url'] = profilePictureUrl;
+      }
+
+      log('googleSync request body: $body');
+
+      final response = await Dio().post(
+        ApiUrls.baseUrl + ApiUrls.googleSyncUrl,
+        data: body,
+        options: Options(
+          headers: {'Content-Type': 'application/json'},
+        ),
+      );
+
+      log('googleSync response (${response.statusCode}): ${response.data}');
+
+      final data = response.data as Map<String, dynamic>;
+      final user = data['user'] as Map<String, dynamic>?;
+      if (user != null && user['user_id'] != null) {
+        await storageService.saveUserId(userId: user['user_id'] as int);
+      }
+      return data;
+    } on DioException catch (e) {
       log('googleSync DioException: $e');
+      log('googleSync response body: ${e.response?.data}');
       if (e.response != null) {
         return Future.error(
           e.response?.data['detail'] ?? 'Google sync failed',

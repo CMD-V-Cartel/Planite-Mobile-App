@@ -51,6 +51,10 @@
 	<string>This app needs microphone access to record your voice for speech-to-text.</string>
 	<key>FlutterDeepLinkingEnabled</key>
 	<true/>
+	<key>GIDClientID</key>
+	<string>1042687681928-qboao5dm97o3c9pnsn8olgglhdl0fcml.apps.googleusercontent.com</string>
+	<key>GIDServerClientID</key>
+	<string>1042687681928-qboao5dm97o3c9pnsn8olgglhdl0fcml.apps.googleusercontent.com</string>
 	<key>CFBundleURLTypes</key>
 	<array>
 		<dict>
@@ -61,6 +65,16 @@
 			<key>CFBundleURLSchemes</key>
 			<array>
 				<string>io.supabase.flutter</string>
+			</array>
+		</dict>
+		<dict>
+			<key>CFBundleTypeRole</key>
+			<string>Editor</string>
+			<key>CFBundleURLName</key>
+			<string>google.sign-in</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>com.googleusercontent.apps.1042687681928-qboao5dm97o3c9pnsn8olgglhdl0fcml</string>
 			</array>
 		</dict>
 	</array>

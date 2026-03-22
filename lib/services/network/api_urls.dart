@@ -7,6 +7,17 @@ class ApiUrls {
   static const String logoutUrl = "auth/logout";
   static const String refreshUrl = "auth/refresh";
   static const String googleSyncUrl = "auth/google/sync";
+  static const String googleExchangeUrl = "auth/google/exchange";
+
+  ///[GROUPS & INVITES]
+  static const String createGroup = "groups";
+  static String deleteGroup(int groupId) => "groups/$groupId";
+  static String groupMembers(int groupId) => "groups/$groupId/members";
+  static String removeMember(int groupId, int userId) =>
+      "groups/$groupId/members/$userId";
+  static String inviteToGroup(int groupId) => "groups/$groupId/invite";
+  static const String myInvites = "invites/me";
+  static String respondInvite(int inviteId) => "invites/$inviteId/respond";
 
   ///[HOME]
   static const String getMyTasks = "my-tasks";

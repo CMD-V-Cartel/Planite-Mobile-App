@@ -242,22 +242,22 @@ class _AiChatScreenState extends State<AiChatScreen>
   Map<String, List<MemberScheduleSlot>> _buildDemoSchedules(Group group) {
     final Map<String, List<MemberScheduleSlot>> schedules = {};
     for (int i = 0; i < group.members.length; i++) {
-      final GroupMember m = group.members[i];
-      if (m.name == 'You') continue;
+      final member = group.members[i];
+      final label = 'User #${member.userId}';
       switch (i % 4) {
         case 0:
-          schedules[m.name] = const [
+          schedules[label] = const [
             MemberScheduleSlot(title: 'Team standup', timeRange: '9:00 – 9:30 AM'),
             MemberScheduleSlot(title: 'Design review', timeRange: '2:00 – 3:00 PM'),
           ];
         case 1:
-          schedules[m.name] = const [];
+          schedules[label] = const [];
         case 2:
-          schedules[m.name] = const [
+          schedules[label] = const [
             MemberScheduleSlot(title: 'Client call', timeRange: '11:00 AM – 12:00 PM'),
           ];
         case 3:
-          schedules[m.name] = const [];
+          schedules[label] = const [];
       }
     }
     return schedules;

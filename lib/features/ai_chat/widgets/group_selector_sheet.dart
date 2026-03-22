@@ -75,7 +75,7 @@ class GroupSelectorSheet extends StatelessWidget {
                   const Divider(height: 1, indent: 72, color: Color(0xFFF0F1F4)),
               itemBuilder: (BuildContext context, int index) {
                 final Group group = groups[index];
-                final bool isSelected = selectedGroup?.id == group.id;
+                final bool isSelected = selectedGroup?.groupId == group.groupId;
                 return ListTile(
                   leading: CircleAvatar(
                     backgroundColor: group.avatarColor,
@@ -98,7 +98,7 @@ class GroupSelectorSheet extends StatelessWidget {
                     ),
                   ),
                   subtitle: Text(
-                    '${group.members.length} members',
+                    '${group.members.length} member${group.members.length == 1 ? '' : 's'}',
                     style:
                         const TextStyle(fontSize: 12, color: Color(0xFF8E95A4)),
                   ),

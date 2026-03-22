@@ -1,16 +1,27 @@
-import 'dart:async';
-
-import 'package:cursor_hack/config/supabase_oauth_config.dart';
 import 'package:cursor_hack/features/auth/models/auth_model.dart';
 import 'package:cursor_hack/features/auth/repository/auth_repository.dart';
 import 'package:cursor_hack/router/app_route_constant.dart';
 import 'package:cursor_hack/services/storage/storage_service.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:google_sign_in/google_sign_in.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' hide AuthUser;
 
 class AuthProvider with ChangeNotifier {
   final AuthRepository _authRepository = AuthRepository();
+
+  bool _googleInitialized = false;
+
+  static const List<String> _googleScopes = <String>[
+    'email',
+    'https://www.googleapis.com/auth/calendar.readonly',
+  ];
+
+  Future<void> _ensureGoogleInit() async {
+    if (_googleInitialized) return;
+    await GoogleSignIn.instance.initialize();
+    _googleInitialized = true;
+  }
 
   String? _errorMessage;
   String? get errorMessage => _errorMessage;
@@ -119,6 +130,9 @@ class AuthProvider with ChangeNotifier {
       await _authRepository.backendLogout();
       await StorageService.instance.clearStorage();
       try {
+        await GoogleSignIn.instance.signOut();
+      } catch (_) {}
+      try {
         await Supabase.instance.client.auth.signOut();
       } catch (_) {}
       _authModel = null;
@@ -127,92 +141,91 @@ class AuthProvider with ChangeNotifier {
     } catch (_) {}
   }
 
-  /// Google OAuth via Supabase. After the redirect completes, calls
-  /// `POST /auth/google/sync` per AGENTS.md to bridge the identity gap.
+  /// Native Google Sign-In per AGENTS.md:
+  /// 1. GoogleSignIn.authenticate() -> idToken
+  /// 2. supabase.auth.signInWithIdToken(idToken) -> session + providerRefreshToken
+  /// 3. POST /auth/google/sync { email, provider_user_id, google_refresh_token }
   Future<void> signInWithGoogle(BuildContext context) async {
     setErrorMessage(null);
     setGoogleLoading(true);
-    StreamSubscription<AuthState>? sub;
-    var oauthLaunched = false;
 
     try {
-      final Completer<Session> sessionCompleter = Completer<Session>();
+      await _ensureGoogleInit();
 
-      sub = Supabase.instance.client.auth.onAuthStateChange.listen((
-        AuthState data,
-      ) {
-        if (!oauthLaunched) return;
-
-        if (data.event == AuthChangeEvent.signedIn && data.session != null) {
-          if (!sessionCompleter.isCompleted) {
-            sessionCompleter.complete(data.session!);
-          }
+      // Step 1: Native Google authentication.
+      final GoogleSignInAccount googleUser;
+      try {
+        googleUser = await GoogleSignIn.instance.authenticate(
+          scopeHint: _googleScopes,
+        );
+      } on GoogleSignInException catch (e) {
+        if (e.code == GoogleSignInExceptionCode.canceled) {
+          setGoogleLoading(false);
+          return;
         }
-      });
-
-      final bool launched = await Supabase.instance.client.auth.signInWithOAuth(
-        OAuthProvider.google,
-        redirectTo: supabaseOAuthRedirectTo(),
-        authScreenLaunchMode: LaunchMode.externalApplication,
-      );
-
-      if (!launched) {
-        throw StateError('Could not open Google sign-in.');
+        rethrow;
       }
-      oauthLaunched = true;
 
-      final Session session = await sessionCompleter.future.timeout(
-        const Duration(minutes: 5),
-        onTimeout: () => throw TimeoutException('Google sign-in timed out.'),
+      final String? idToken = googleUser.authentication.idToken;
+      if (idToken == null) {
+        throw StateError(
+          'Google sign-in succeeded but no ID token was returned.',
+        );
+      }
+
+      // Get the Google access token via authorizeScopes (calendar access).
+      String? accessToken;
+      try {
+        final clientAuth =
+            await googleUser.authorizationClient.authorizeScopes(_googleScopes);
+        accessToken = clientAuth.accessToken;
+      } catch (e) {
+        debugPrint('authorizeScopes failed: $e');
+      }
+
+      // Step 2: Create a Supabase session using the Google ID token.
+      final AuthResponse authResponse =
+          await Supabase.instance.client.auth.signInWithIdToken(
+        provider: OAuthProvider.google,
+        idToken: idToken,
       );
+
+      final Session? session = authResponse.session;
+      final User? supabaseUser = authResponse.user;
+
+      if (session == null || supabaseUser == null) {
+        throw StateError(
+          'Supabase session creation failed after Google sign-in.',
+        );
+      }
 
       // Persist Supabase tokens locally.
       await StorageService.instance.saveToken(token: session.accessToken);
-      final String? supabaseRefresh = session.refreshToken;
-      if (supabaseRefresh != null) {
-        await StorageService.instance.saveRefreshToken(token: supabaseRefresh);
+      if (session.refreshToken != null) {
+        await StorageService.instance
+            .saveRefreshToken(token: session.refreshToken!);
       }
 
-      // Extract Google identity from the Supabase user object.
-      final user = Supabase.instance.client.auth.currentUser;
-      final String email = user?.email ?? session.user.email ?? '';
-      String providerUserId = '';
-      String? googleRefreshToken;
-      String? fullName;
-      String? profilePictureUrl;
+      // Extract identity data.
+      final String email = supabaseUser.email ?? googleUser.email;
+      final String providerUserId =
+          supabaseUser.userMetadata?['sub'] as String? ?? googleUser.id;
+      final String? fullName = googleUser.displayName;
+      final String? profilePicUrl = googleUser.photoUrl;
 
-      if (user != null) {
-        final googleIdentity = user.identities?.where(
-          (id) => id.provider == 'google',
-        );
-        if (googleIdentity != null && googleIdentity.isNotEmpty) {
-          providerUserId = googleIdentity.first.id;
-        }
+      debugPrint('Google sync data: email=$email, '
+          'providerUserId=$providerUserId, '
+          'accessToken=${accessToken != null ? "(present)" : "null"}');
 
-        final Map<String, dynamic>? meta = user.userMetadata;
-        if (meta != null) {
-          fullName = meta['full_name'] as String? ??
-              meta['name'] as String?;
-          profilePictureUrl = meta['avatar_url'] as String? ??
-              meta['picture'] as String?;
-        }
-      }
-
-      // The Google refresh token is only available from provider token data
-      // when offline access was granted. Supabase may expose it in the session
-      // providerRefreshToken field.
-      googleRefreshToken = session.providerRefreshToken;
-
-      // Call POST /auth/google/sync -- only if we have a non-null Google
-      // refresh token, OR this is potentially the first login (always sync).
-      if (providerUserId.isNotEmpty) {
+      // Step 3: POST /auth/google/sync with the Google access token.
+      if (providerUserId.isNotEmpty && accessToken != null) {
         try {
           final syncResult = await _authRepository.googleSync(
             email: email,
             providerUserId: providerUserId,
-            googleRefreshToken: googleRefreshToken,
+            googleAccessToken: accessToken,
             fullName: fullName,
-            profilePictureUrl: profilePictureUrl,
+            profilePictureUrl: profilePicUrl,
           );
           debugPrint('Google sync result: $syncResult');
         } catch (e) {
@@ -231,23 +244,22 @@ class AuthProvider with ChangeNotifier {
       if (context.mounted) {
         context.go(AppRouteConstant.home);
       }
-      return;
-    } on TimeoutException {
-      debugPrint('signInWithGoogle: user cancelled or timed out');
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Sign-in was cancelled. Please try again.'),
-            behavior: SnackBarBehavior.floating,
-          ),
-        );
-      }
     } on AuthException catch (e) {
       debugPrint('signInWithGoogle AuthException: $e');
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(e.message),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    } on GoogleSignInException catch (e) {
+      debugPrint('signInWithGoogle GoogleSignInException: $e');
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Google sign-in failed: ${e.code}'),
             behavior: SnackBarBehavior.floating,
           ),
         );
@@ -263,7 +275,6 @@ class AuthProvider with ChangeNotifier {
         );
       }
     } finally {
-      await sub?.cancel();
       setGoogleLoading(false);
     }
   }
